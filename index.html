@@ -1,89 +1,341 @@
-<div>Teachable Machine Image Model + Arduino</div>
-<!-- 아두이노 연결 버튼 추가 -->
-<button type="button" onclick="connectArduino()">1. 아두이노 연결하기</button>
-<button type="button" onclick="init()">2. 카메라 시작</button>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 쓰레기 분류 시스템</title>
+<style>
+  :root { color-scheme: light; --ink:#172033; --muted:#64748b; --line:#dbe3ee; --blue:#3157d5; --pale:#eef3ff; --green:#137a50; --red:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:linear-gradient(135deg,#f1f5ff,#f4fbf7); color:var(--ink); }
+  main { max-width:1000px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { margin:0; font-size:clamp(1.6rem,4vw,2.3rem); }
+  .sub { color:var(--muted); margin:8px 0 22px; }
+  .layout { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:0 8px 24px #23395d0b; }
+  h2 { font-size:1.12rem; margin:0 0 14px; }
+  button { border:0; border-radius:11px; padding:11px 14px; font:inherit; font-weight:650; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .primary { background:var(--blue); color:#fff; }
+  .secondary { background:var(--pale); color:#2342a4; }
+  .danger { background:#fff0ef; color:var(--red); }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; }
+  #webcam-wrap { display:flex; align-items:center; justify-content:center; min-height:240px; background:#101828; border-radius:14px; overflow:hidden; }
+  #webcam-wrap canvas { max-width:100%; height:auto; }
+  .status { border-radius:10px; padding:10px 12px; background:#f1f5f9; color:#334155; margin-top:12px; font-size:.93rem; overflow-wrap:anywhere; }
+  .status.ok { background:#e9f8f0; color:#11623f; }
+  .status.err { background:#fff0ef; color:#a11b13; }
+  .big { font-size:1.45rem; font-weight:800; margin:4px 0; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .pred { margin:8px 0; }
+  .bar { height:8px; border-radius:9px; background:#e8edf5; overflow:hidden; margin-top:4px; }
+  .bar > div { height:100%; width:0; background:var(--blue); transition:width .15s; }
+  label { display:block; font-weight:650; font-size:.92rem; margin:12px 0 5px; }
+  select, input { width:100%; border:1px solid #cbd5e1; border-radius:9px; padding:10px; font:inherit; background:#fff; color:var(--ink); }
+  .mapping { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; }
+  .mapitem { border:1px solid var(--line); padding:10px; border-radius:12px; }
+  .mapitem label { margin-top:0; }
+  .note { font-size:.88rem; line-height:1.55; color:#475569; }
+  .pill { display:inline-block; border-radius:99px; background:#edf2f7; padding:4px 9px; font-size:.8rem; }
+  footer { margin-top:16px; color:var(--muted); font-size:.84rem; line-height:1.55; }
+  @media(max-width:480px){ main{padding:18px 10px 32px}.card{padding:14px}.mapping{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<main>
+  <h1>♻️ AI 쓰레기 분류 시스템</h1>
+  <p class="sub">Teachable Machine AI + Arduino Uno + ULN2003 + 28BYJ-48</p>
 
-<div id="webcam-container"></div>
-<div id="label-container"></div>
+  <div class="layout">
+    <section class="card">
+      <h2>1. 카메라와 AI</h2>
+      <div id="webcam-wrap"><div style="color:#fff;padding:20px;text-align:center">AI 시작을 누르면 카메라 화면이 여기에 표시됩니다.</div></div>
+      <div class="actions" style="margin-top:12px">
+        <button id="startBtn" class="primary">AI 시작</button>
+        <button id="stopBtn" class="secondary" disabled>AI 중지</button>
+      </div>
+      <div id="modelStatus" class="status">모델을 아직 불러오지 않았습니다.</div>
+      <div style="margin-top:14px">
+        <div class="muted">현재 AI 예측</div>
+        <div id="topLabel" class="big">대기 중</div>
+        <div id="topConfidence" class="muted">신뢰도: —</div>
+        <div id="predictions"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. Arduino USB 연결</h2>
+      <p class="note">Arduino IDE의 시리얼 모니터를 먼저 닫은 뒤 연결하세요. 연결 버튼을 누르면 브라우저가 포트 선택 창을 엽니다.</p>
+      <div class="actions">
+        <button id="connectBtn" class="primary">Connect Arduino</button>
+        <button id="disconnectBtn" class="secondary" disabled>연결 해제</button>
+      </div>
+      <div id="serialStatus" class="status">아두이노 연결 안 됨</div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+      <h2>3. 모터 명령 테스트</h2>
+      <p class="note">AI와 별개로 번호를 직접 보내 모터를 테스트할 수 있습니다. 실제 쓰레기통을 장착하기 전에 확인하세요.</p>
+      <div class="actions">
+        <button class="secondary testBtn" data-command="1" disabled>1 · 캔 · 0°</button>
+        <button class="secondary testBtn" data-command="2" disabled>2 · 종이 · 90°</button>
+        <button class="secondary testBtn" data-command="3" disabled>3 · 플라스틱 · 180°</button>
+        <button class="secondary testBtn" data-command="4" disabled>4 · 일반쓰레기 · 270°</button>
+      </div>
+      <div id="lastCommand" class="status">전송한 명령: 없음</div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px">
+    <h2>4. AI 클래스와 쓰레기 종류 연결</h2>
+    <p class="note">모델의 실제 클래스 이름을 불러온 뒤, 각 쓰레기 종류에 해당하는 클래스를 선택하세요. 클래스 이름이 캔/종이/플라스틱/일반쓰레기와 정확히 같지 않아도 직접 선택할 수 있습니다.</p>
+    <div class="mapping">
+      <div class="mapitem"><label for="map1">캔 → 0° (명령 1)</label><select id="map1" disabled><option>먼저 AI 모델을 불러오세요</option></select></div>
+      <div class="mapitem"><label for="map2">종이 → 90° (명령 2)</label><select id="map2" disabled><option>먼저 AI 모델을 불러오세요</option></select></div>
+      <div class="mapitem"><label for="map3">플라스틱 → 180° (명령 3)</label><select id="map3" disabled><option>먼저 AI 모델을 불러오세요</option></select></div>
+      <div class="mapitem"><label for="map4">일반쓰레기 → 270° (명령 4)</label><select id="map4" disabled><option>먼저 AI 모델을 불러오세요</option></select></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div><label for="threshold">최소 신뢰도 (%)</label><input id="threshold" type="number" min="50" max="100" value="85"></div>
+      <div><label for="stableCount">연속 일치 횟수</label><input id="stableCount" type="number" min="1" max="20" value="5"></div>
+    </div>
+    <p class="note">안전장치: 설정한 신뢰도 이상으로 같은 분류가 연속 확인될 때만 명령을 보냅니다. 같은 종류가 계속 보일 때 모터 명령을 반복해서 보내지 않습니다.</p>
+    <div id="mappingStatus" class="status">모델을 불러오면 클래스 선택 항목이 나타납니다.</div>
+  </section>
+
+  <footer>
+    <strong>실행 조건:</strong> Chrome 또는 Edge에서 HTTPS 또는 localhost 주소로 열어야 카메라와 Web Serial이 작동합니다. 이 HTML은 인터넷 연결이 필요하며 Teachable Machine 모델을 온라인에서 불러옵니다.<br>
+    <strong>중요:</strong> 모터 목표 위치는 기존 Arduino 코드의 1=0°, 2=90°, 3=180°, 4=270° 설정을 사용합니다. 원점 센서가 없으므로 전원을 켤 때 기구가 실제 0° 위치에 있는지 확인하세요. AI가 잘못 분류할 수 있으니 처음에는 통/기구를 장착하지 않고 시험하세요.
+  </footer>
+</main>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-<script type="text/javascript">
-    const URL = "./my_model/"; // 본인 모델 폴더 경로
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<script>
+(() => {
+  const MODEL_BASE = "https://teachablemachine.withgoogle.com/models/b8akXeWDP/";
+  const MODEL_URL = MODEL_BASE + "model.json";
+  const METADATA_URL = MODEL_BASE + "metadata.json";
 
-    let model, webcam, labelContainer, maxPredictions;
-    let port, writer;
-    let lastSentTime = 0; // 중복 전송 방지용 딜레이 변수
+  const $ = id => document.getElementById(id);
+  const startBtn = $("startBtn"), stopBtn = $("stopBtn");
+  const connectBtn = $("connectBtn"), disconnectBtn = $("disconnectBtn");
+  const modelStatus = $("modelStatus"), serialStatus = $("serialStatus");
+  const mappingStatus = $("mappingStatus"), lastCommand = $("lastCommand");
+  const webcamWrap = $("webcam-wrap"), topLabel = $("topLabel"), topConfidence = $("topConfidence");
+  const predictions = $("predictions");
+  const selects = [ $("map1"), $("map2"), $("map3"), $("map4") ];
+  const categories = ["캔", "종이", "플라스틱", "일반쓰레기"];
+  const commands = ["1", "2", "3", "4"];
 
-    // 1. 웹 브라우저에서 아두이노(COM 포트)와 연결하는 함수
-    async function connectArduino() {
-        try {
-            port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 9600 });
-            writer = port.writable.getWriter();
-            alert("아두이노 연결 성공!");
-        } catch (error) {
-            alert("아두이노 연결 실패: " + error);
-        }
+  let model = null, webcam = null, running = false, loopBusy = false;
+  let port = null, writer = null;
+  let stableLabel = null, stableFrames = 0, lastSentCategory = null;
+  let modelLabels = [];
+  let serialWriteBusy = false;
+
+  function setStatus(el, msg, kind = "") {
+    el.textContent = msg;
+    el.className = "status" + (kind ? " " + kind : "");
+  }
+  function normalize(s) { return String(s || "").toLowerCase().replace(/\s+/g, "").replace(/[_-]/g, ""); }
+  function guessLabelIndex(category, labels) {
+    const words = {
+      "캔": ["캔","can","aluminum","metal"],
+      "종이": ["종이","paper","cardboard"],
+      "플라스틱": ["플라스틱","plastic","pet"],
+      "일반쓰레기": ["일반쓰레기","일반","쓰레기","trash","general","garbage","other","residual"]
+    }[category];
+    return labels.findIndex(label => words.some(w => normalize(label).includes(normalize(w))));
+  }
+  function populateMappings(labels) {
+    modelLabels = labels;
+    selects.forEach((sel, idx) => {
+      sel.innerHTML = "";
+      labels.forEach(label => {
+        const opt = document.createElement("option");
+        opt.value = label; opt.textContent = label;
+        sel.appendChild(opt);
+      });
+      sel.disabled = false;
+      const guess = guessLabelIndex(categories[idx], labels);
+      sel.selectedIndex = guess >= 0 ? guess : Math.min(idx, labels.length - 1);
+    });
+    const duplicateWarning = () => {
+      const values = selects.map(s => s.value);
+      if (new Set(values).size < 4) {
+        setStatus(mappingStatus, "확인 필요: 같은 AI 클래스를 여러 종류에 연결했어요. 각 종류의 클래스를 확인해 주세요.", "err");
+      } else {
+        setStatus(mappingStatus, "클래스 연결 준비 완료. 이름이 맞는지 확인한 뒤 AI 분류를 시작하세요.", "ok");
+      }
+    };
+    selects.forEach(s => s.addEventListener("change", duplicateWarning));
+    duplicateWarning();
+  }
+
+  async function loadModel() {
+    if (!window.tmImage) throw new Error("AI 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.");
+    const loaded = await tmImage.load(MODEL_URL, METADATA_URL);
+    const labels = loaded.getClassLabels();
+    if (!labels || labels.length < 1) throw new Error("모델 클래스 이름을 찾을 수 없습니다.");
+    model = loaded;
+    populateMappings(labels);
+    return labels;
+  }
+
+  function renderPredictions(preds) {
+    predictions.innerHTML = "";
+    const sorted = [...preds].sort((a,b) => b.probability - a.probability);
+    sorted.forEach(p => {
+      const wrap = document.createElement("div");
+      wrap.className = "pred";
+      const line = document.createElement("div");
+      line.style.display = "flex"; line.style.justifyContent = "space-between"; line.style.gap = "8px";
+      const name = document.createElement("span"); name.textContent = p.className;
+      const pct = document.createElement("span"); pct.textContent = (p.probability * 100).toFixed(1) + "%";
+      line.append(name,pct);
+      const bar = document.createElement("div"); bar.className = "bar";
+      const fill = document.createElement("div"); fill.style.width = Math.max(0,Math.min(100,p.probability*100)) + "%";
+      bar.appendChild(fill); wrap.append(line,bar); predictions.appendChild(wrap);
+    });
+  }
+
+  function getCategoryForLabel(label) {
+    const idx = selects.findIndex(s => !s.disabled && s.value === label);
+    return idx >= 0 ? idx : -1;
+  }
+
+  async function sendCommand(command, reason) {
+    if (!writer || !port) {
+      setStatus(serialStatus, "먼저 Connect Arduino를 눌러 아두이노를 연결하세요.", "err");
+      return false;
     }
+    if (serialWriteBusy) return false;
+    serialWriteBusy = true;
+    try {
+      await writer.write(new TextEncoder().encode(command));
+      lastCommand.textContent = `전송한 명령: ${command} · ${categories[Number(command)-1]} · ${reason}`;
+      setStatus(serialStatus, "아두이노 연결됨 · 명령 전송 완료", "ok");
+      return true;
+    } catch (e) {
+      setStatus(serialStatus, "전송 실패: " + e.message, "err");
+      return false;
+    } finally {
+      serialWriteBusy = false;
+    }
+  }
 
-    // 2. 카메라 및 모델 초기화
-    async function init() {
-        const modelURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
-
-        model = await tmImage.load(modelURL, metadataURL);
-        maxPredictions = model.getTotalClasses();
-
-        const flip = true; 
-        webcam = new tmImage.Webcam(200, 200, flip); 
-        await webcam.setup(); 
+  async function startAI() {
+    startBtn.disabled = true;
+    setStatus(modelStatus, "AI 모델을 불러오는 중…");
+    try {
+      if (!model) await loadModel();
+      if (!running) {
+        webcam = new tmImage.Webcam(320, 240, true);
+        await webcam.setup();
         await webcam.play();
-        window.requestAnimationFrame(loop);
+        webcamWrap.innerHTML = "";
+        webcamWrap.appendChild(webcam.canvas);
+        running = true;
+        stableLabel = null; stableFrames = 0; lastSentCategory = null;
+        startBtn.disabled = true; stopBtn.disabled = false;
+        setStatus(modelStatus, "AI 준비 완료 · 카메라 작동 중", "ok");
+        requestAnimationFrame(predictLoop);
+      }
+    } catch (e) {
+      startBtn.disabled = false;
+      setStatus(modelStatus, "시작 실패: " + e.message + " (HTTPS/localhost, 카메라 권한, 인터넷 연결을 확인하세요.)", "err");
+    }
+  }
 
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        for (let i = 0; i < maxPredictions; i++) {
-            labelContainer.appendChild(document.createElement("div"));
+  async function predictLoop() {
+    if (!running || loopBusy) return;
+    loopBusy = true;
+    try {
+      webcam.update();
+      const preds = await model.predict(webcam.canvas);
+      renderPredictions(preds);
+      const best = preds.reduce((a,b) => a.probability > b.probability ? a : b);
+      topLabel.textContent = best.className;
+      topConfidence.textContent = "신뢰도: " + (best.probability * 100).toFixed(1) + "%";
+      const threshold = Math.min(100, Math.max(50, Number($("threshold").value) || 85)) / 100;
+      const required = Math.min(20, Math.max(1, Number($("stableCount").value) || 5));
+      const categoryIdx = getCategoryForLabel(best.className);
+      if (best.probability >= threshold && categoryIdx >= 0) {
+        if (stableLabel === best.className) stableFrames++;
+        else { stableLabel = best.className; stableFrames = 1; }
+        if (stableFrames >= required && lastSentCategory !== categoryIdx) {
+          if (writer) {
+            const sent = await sendCommand(commands[categoryIdx], "AI 자동 분류");
+            if (sent) lastSentCategory = categoryIdx;
+          }
         }
+      } else {
+        stableLabel = null; stableFrames = 0;
+      }
+    } catch (e) {
+      setStatus(modelStatus, "AI 예측 오류: " + e.message, "err");
+    } finally {
+      loopBusy = false;
+      if (running) requestAnimationFrame(predictLoop);
     }
+  }
 
-    async function loop() {
-        webcam.update(); 
-        await predict();
-        window.requestAnimationFrame(loop);
+  async function stopAI() {
+    running = false;
+    if (webcam) {
+      try { webcam.stop(); } catch (_) {}
+      webcam = null;
     }
+    webcamWrap.innerHTML = '<div style="color:#fff;padding:20px;text-align:center">카메라가 중지되었습니다.</div>';
+    startBtn.disabled = false; stopBtn.disabled = true;
+    topLabel.textContent = "대기 중"; topConfidence.textContent = "신뢰도: —";
+    predictions.innerHTML = "";
+    setStatus(modelStatus, model ? "AI 모델 준비 완료 · 카메라는 중지됨" : "모델을 아직 불러오지 않았습니다.");
+  }
 
-    // 3. 이미지 예측 및 아두이노로 신호 전송
-    async function predict() {
-        const prediction = await model.predict(webcam.canvas);
-        
-        for (let i = 0; i < maxPredictions; i++) {
-            const classPrediction =
-                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-            labelContainer.childNodes[i].innerHTML = classPrediction;
-
-            // 확률이 85%(0.85) 이상이고, 아두이노가 연결되어 있으며, 5초 쿨타임이 지난 경우에만 전송
-            if (prediction[i].probability > 0.85 && writer) {
-                let currentTime = Date.now();
-                if (currentTime - lastSentTime > 5000) { // 5초에 한 번씩만 전송 (모터 움직이는 동안 중복 방지)
-                    let className = prediction[i].className.trim().toUpperCase(); // "PAPER", "PLASTIC" 등
-                    
-                    // 우리가 아두이노 코드에 지정한 이름과 일치하는 경우에만 전송
-                    if (["PAPER", "PLASTIC", "CAN", "TRASH"].includes(className)) {
-                        sendToArduino(className);
-                        lastSentTime = currentTime;
-                    }
-                }
-            }
-        }
+  async function connectArduino() {
+    if (!("serial" in navigator)) {
+      setStatus(serialStatus, "이 브라우저는 Web Serial을 지원하지 않습니다. 데스크톱 Chrome 또는 Edge에서 HTTPS/localhost로 열어 주세요.", "err");
+      return;
     }
-
-    // 아두이노로 문자열 전송하는 함수
-    async function sendToArduino(data) {
-        const encoder = new TextEncoder();
-        const command = data + "\n"; // 엔터(\n) 포함해서 전송
-        await writer.write(encoder.encode(command));
-        console.log("아두이노로 전송된 신호: " + data);
+    if (writer) return;
+    try {
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 9600 });
+      writer = port.writable.getWriter();
+      connectBtn.disabled = true; disconnectBtn.disabled = false;
+      document.querySelectorAll(".testBtn").forEach(b => b.disabled = false);
+      setStatus(serialStatus, "아두이노 연결됨 · 9600 baud", "ok");
+    } catch (e) {
+      port = null; writer = null;
+      setStatus(serialStatus, "연결 실패 또는 취소: " + e.message, "err");
     }
+  }
+
+  async function disconnectArduino() {
+    try {
+      if (writer) { writer.releaseLock(); writer = null; }
+      if (port) { await port.close(); port = null; }
+      setStatus(serialStatus, "아두이노 연결 해제됨");
+    } catch (e) {
+      setStatus(serialStatus, "연결 해제 중 오류: " + e.message, "err");
+    }
+    connectBtn.disabled = false; disconnectBtn.disabled = true;
+    document.querySelectorAll(".testBtn").forEach(b => b.disabled = true);
+  }
+
+  startBtn.addEventListener("click", startAI);
+  stopBtn.addEventListener("click", stopAI);
+  connectBtn.addEventListener("click", connectArduino);
+  disconnectBtn.addEventListener("click", disconnectArduino);
+  document.querySelectorAll(".testBtn").forEach(btn => {
+    btn.addEventListener("click", () => sendCommand(btn.dataset.command, "수동 테스트"));
+  });
+  window.addEventListener("beforeunload", () => {
+    running = false;
+    try { if (writer) writer.releaseLock(); } catch (_) {}
+    try { if (webcam) webcam.stop(); } catch (_) {}
+  });
+})();
 </script>
+</body>
+</html>
